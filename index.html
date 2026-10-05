@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商品注文フォーム - 川畑水産（観賞魚）</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root {
+      --primary-color: #005bac; --bg-color: #f4f6f9; --card-bg: #ffffff;
+      --text-color: #333333; --border-color: #e0e0e0; --danger-color: #d81b60; --success-color: #27ae60;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-color); padding-bottom: 90px; }
+    .sticky-header-container { position: sticky; top: 0; z-index: 100; background-color: var(--bg-color); box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+    header { background-color: var(--card-bg); text-align: center; padding: 10px 15px; font-size: 1.05rem; font-weight: bold; border-bottom: 1px solid var(--border-color); }
+    .user-badge { font-size: 0.8rem; color: #008000; margin-top: 3px; font-weight: bold; background: #eef9ee; padding: 2px 8px; border-radius: 10px; display: inline-block; }
+    
+    .register-box { background: #fff; margin: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); overflow: hidden; }
+    .register-header { background: var(--primary-color); color: #fff; text-align: center; padding: 12px; font-weight: bold; font-size: 1rem; }
+    .register-body { padding: 15px; }
+    .register-desc { font-size: 0.85rem; color: #555; margin-bottom: 15px; line-height: 1.5; }
+    
+    .tabs { display: flex; background-color: var(--card-bg); border-bottom: 1px solid var(--border-color); overflow-x: auto; }
+    .tab-btn { flex: 1; padding: 10px 12px; text-align: center; background: none; border: none; font-size: 0.9rem; font-weight: bold; color: #666; cursor: pointer; white-space: nowrap; }
+    .tab-btn.active { color: #fff; background-color: var(--primary-color); border-radius: 4px; }
+    .summary-card { background: var(--card-bg); margin: 8px 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid #bce1ff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .summary-info { display: flex; justify-content: space-between; font-weight: bold; font-size: 0.85rem; margin-bottom: 5px; }
+    .progress-bar-bg { background-color: #e0e0e0; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 5px; }
+    .progress-bar-fill { background-color: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease; }
+    .summary-sub { display: flex; justify-content: space-between; font-size: 0.75rem; color: #666; }
+    .product-list { padding: 6px 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .loading-text { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: #666; font-size: 0.95rem; line-height: 1.5; }
+    .product-card { background: var(--card-bg); border-radius: 8px; padding: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; justify-content: space-between; gap: 6px; position: relative; }
+    .product-card.disabled { opacity: 0.6; }
+    .soldout-tag { position: absolute; top: 15px; left: 15px; background: rgba(217, 83, 79, 0.95); color: #fff; font-size: 0.75rem; font-weight: bold; padding: 4px 8px; border-radius: 4px; z-index: 2; }
+    .repeat-badge { background: #ff9800; color: #fff; font-size: 0.65rem; font-weight: bold; padding: 2px 5px; border-radius: 4px; display: inline-block; margin-left: 4px; vertical-align: middle; }
+    .product-img { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; background-color: #eee; cursor: pointer; }
+    .product-title { font-size: 0.85rem; font-weight: bold; line-height: 1.2; }
+    .product-meta { font-size: 0.75rem; color: #777; }
+    .product-price-box { display: flex; align-items: baseline; gap: 6px; }
+    .product-price { font-size: 1rem; font-weight: bold; color: var(--primary-color); }
+    .price-ask { font-size: 1rem; font-weight: bold; color: var(--danger-color); }
+    .qty-control { display: flex; align-items: center; border: 1px solid var(--border-color); border-radius: 4px; width: fit-content; overflow: hidden; }
+    .qty-btn { width: 32px; height: 28px; background: #f0f0f0; border: none; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
+    .qty-btn:disabled { color: #ccc; cursor: not-allowed; }
+    .qty-input { width: 40px; height: 28px; text-align: center; border: none; font-weight: bold; font-size: 0.9rem; }
+    .footer-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card-bg); padding: 10px 12px; border-top: 1px solid var(--border-color); box-shadow: 0 -2px 6px rgba(0,0,0,0.05); z-index: 100; }
+    .confirm-btn { width: 100%; background-color: var(--primary-color); color: #fff; border: none; padding: 14px; border-radius: 6px; font-size: 1rem; font-weight: bold; cursor: pointer; }
+    .confirm-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 200; padding: 16px; }
+    .modal-overlay.active { display: flex; }
+    .modal-content { background: #fff; width: 100%; max-width: 420px; border-radius: 10px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 90vh; display: flex; flex-direction: column; }
+    .modal-header { font-size: 1.1rem; font-weight: bold; text-align: center; padding-bottom: 8px; border-bottom: 2px solid var(--primary-color); margin-bottom: 12px; }
+    .modal-body { overflow-y: auto; flex: 1; margin-bottom: 12px; }
+    .form-group { margin-bottom: 8px; }
+    .form-group label { display: block; font-size: 0.8rem; font-weight: bold; margin-bottom: 3px; }
+    .form-input { width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.85rem; }
+    .order-item-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 5px 0; border-bottom: 1px dashed #eee; }
+    
+    /* レコメンドセクション */
+    .recommend-section { background: #fffdf5; border: 1px solid #ffe082; border-radius: 8px; padding: 10px; margin-top: 12px; }
+    .recommend-title { font-size: 0.85rem; font-weight: bold; color: #b78103; margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+    .recommend-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #ffe082; font-size: 0.82rem; }
+    .recommend-item:last-child { border-bottom: none; }
+    .recommend-item-info { flex: 1; padding-right: 8px; }
+    .recommend-item-price { color: var(--primary-color); font-weight: bold; margin-left: 4px; }
+    .recommend-add-btn { background: var(--primary-color); color: #fff; border: none; padding: 5px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; cursor: pointer; }
+    
+    /* 受取不可日セレクター */
+    .ng-dates-container { background: #fdfdfd; border: 1px solid #d5dbdb; border-radius: 8px; padding: 10px; margin-top: 12px; }
+    .ng-dates-title { font-size: 0.85rem; font-weight: bold; color: #2c3e50; margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+    .ng-dates-sub { font-size: 0.72rem; color: #7f8c8d; margin-bottom: 8px; line-height: 1.3; }
+    .date-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .date-chip { padding: 5px 8px; border-radius: 6px; border: 1px solid #d0d7de; background: #fff; font-size: 0.75rem; cursor: pointer; user-select: none; transition: all 0.15s ease; color: #333; }
+    .date-chip.selected { background: #e74c3c; color: #fff; border-color: #c0392b; font-weight: bold; }
+
+    .modal-summary { background: #f8f9fa; padding: 10px; border-radius: 6px; font-size: 0.85rem; margin-top: 12px; text-align: center; }
+    .modal-summary .total-price { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); margin-top: 4px; }
+    .modal-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .modal-btn { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    .modal-btn:disabled { background-color: #ccc !important; cursor: not-allowed; }
+    .btn-back { background: #7f8c8d; color: #fff; }
+    .btn-send { background: var(--success-color); color: #fff; }
+    .img-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 300; }
+    .img-modal-overlay.active { display: flex; }
+    .img-modal-content { max-width: 90%; max-height: 80vh; border-radius: 8px; object-fit: contain; }
+    .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.9); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 500; }
+    .loading-overlay.active { display: flex; }
+    .spinner { width: 48px; height: 48px; border: 5px solid #e0e0e0; border-top: 5px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="spinner"></div>
+    <div style="font-weight:bold; color:#333;">処理中...</div>
+    <div style="font-size: 0.75rem; color:#888; margin-top: 4px;">画面を閉じずにお待ちください</div>
+  </div>
+
+  <div class="sticky-header-container">
+    <header>
+      <div style="display: flex; align-items: center; justify-content: space-between; max-width: 650px; margin: 0 auto;">
+        <div style="font-size: 1.05rem; font-weight: bold;">商品注文フォーム</div>
+        <a href="request.html" style="font-size: 0.78rem; padding: 5px 12px; background: #eef5fc; color: var(--primary-color); border-radius: 20px; text-decoration: none; font-weight: bold; border: 1px solid #bce1ff; display: inline-flex; align-items: center; gap: 4px;">
+          🎣 生体リクエスト
+        </a>
+      </div>
+      <div><span class="user-badge" id="user-badge" style="display:none;"></span></div>
+    </header>
+
+    <!-- 未登録ユーザー向けの会員登録・利用申請画面 -->
+    <div id="unregistered-alert" style="display: none;">
+      <div class="register-box">
+        <div class="register-header">会員登録・取引申請</div>
+        <div class="register-body" id="reg-form-body">
+          <div class="register-desc">
+            当サイトは会員制（承認制）の卸売・販売サイトです。<br>
+            商品の閲覧およびご注文には、事前の会員登録が必要です。<br>
+            以下の情報をご確認・ご入力の上、<strong>「公式LINEへ登録申請を送る」</strong>を押してください。<br>
+            <span style="color:var(--primary-color); font-weight:bold;">※当店にて登録・承認完了後、商品をご覧いただけるようになります。</span>
+          </div>
+          
+          <div class="form-group">
+            <label>LINE ユーザーID（自動取得）<span style="color:red;"> *必須</span></label>
+            <input type="text" id="reg-uid" class="form-input" readonly placeholder="LINE連携待機中..." style="background:#f0f0f0; color:#111; font-size:0.82rem; font-weight:bold;">
+            <div id="uid-status-box" style="margin-top:6px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px;">
+              <span id="uid-hint" style="font-size:0.75rem; color:#888;">⏳ LINEアカウント情報を取得中...</span>
+              <button id="liff-login-btn" type="button" style="display:none; padding:5px 12px; background:#06c755; color:#fff; border:none; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;" onclick="execLiffLogin()">LINEログインしてIDを取得</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>店舗名 / お名前（必須）<span style="color:red;"> *</span></label>
+            <input type="text" id="reg-name" class="form-input" placeholder="例: ○○アクアリウム">
+          </div>
+          <div class="form-group">
+            <label>電話番号（必須）<span style="color:red;"> *</span></label>
+            <input type="tel" id="reg-phone" class="form-input" placeholder="例: 090-1234-5678">
+          </div>
+          <div class="form-group">
+            <label>住所（任意）</label>
+            <input type="text" id="reg-address" class="form-input" placeholder="例: 東京都〇〇区... / 店舗住所">
+          </div>
+          
+          <button class="confirm-btn" id="reg-submit-btn" style="margin-top:14px; background:var(--success-color);" onclick="sendRegistrationRequest()">📩 公式LINEへ登録申請を送る</button>
+        </div>
+
+        <div class="register-body" id="reg-done-body" style="display:none; text-align:center; padding:25px 15px;">
+          <div style="font-size:2.5rem; margin-bottom:10px;">⏳</div>
+          <div style="font-weight:bold; font-size:1.05rem; color:#333; margin-bottom:8px;">登録申請を送信しました</div>
+          <div style="font-size:0.85rem; color:#666; line-height:1.5; margin-bottom:15px;">
+            管理者が内容を確認し、顧客マスタへの登録（掛率等の設定）を行います。<br>
+            登録完了後、再度このページを開いていただくと商品一覧をご覧いただけます。<br>
+            今しばらくお待ちください。
+          </div>
+          <button class="confirm-btn" style="background:var(--primary-color);" onclick="location.reload()">再読み込み（登録状況の確認）</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="main-ui" style="display: none;">
+      <div class="tabs" id="category-tabs"></div>
+      <div class="summary-card">
+        <div class="summary-info"><span id="total-price-text">合計金額: 0 円</span><span id="total-vol-text">合計容量: 0 vol</span></div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-bar"></div></div>
+        <div class="summary-sub"><span id="box-rate-text">1箱目の使用率: 0%</span><span id="box-empty-text">箱の空き: 残り 1000 vol</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="product-list" id="product-container">
+    <div class="loading-text">システムを起動しています...</div>
+  </div>
+
+  <div class="footer-bar" id="footer-bar" style="display:none;">
+    <button class="confirm-btn" id="confirm-btn" onclick="openModal()">注文内容を確認する (0点)</button>
+  </div>
+
+  <div class="modal-overlay" id="order-modal">
+    <div class="modal-content">
+      <div class="modal-header">ご注文内容の確認</div>
+      <div class="modal-body">
+        <div style="background:#eef6ff; padding:10px; border-radius:6px; margin-bottom:12px;">
+          <div class="form-group"><label>店舗名 / お名前</label><input type="text" id="cust-name" class="form-input" readonly style="background:#f0f0f0;"></div>
+          <div class="form-group"><label>電話番号</label><input type="tel" id="cust-phone" class="form-input" readonly style="background:#f0f0f0;"></div>
+        </div>
+        
+        <!-- カート商品リスト -->
+        <div id="modal-item-list"></div>
+
+        <!-- 前回の注文おすすめエリア（在庫連動レコメンド） -->
+        <div id="modal-recommend-container" style="display:none;"></div>
+
+        <!-- 受取不可日セレクター（2週間先まで） -->
+        <div class="ng-dates-container">
+          <div class="ng-dates-title">📅 受取不可日（受取が難しい日）</div>
+          <div class="ng-dates-sub">※当店都合で発送いたします。受け取れない日がある場合はタップで選択してください（複数可）。</div>
+          <div class="date-chips" id="ng-date-chips"></div>
+        </div>
+
+        <!-- 合計サマリー -->
+        <div class="modal-summary" id="modal-summary-box"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn btn-back" id="btn-back" onclick="closeModal()">戻る</button>
+        <button class="modal-btn btn-send" id="final-send-btn" onclick="submitOrder()">送信してLINEに送る</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="img-modal-overlay" id="img-zoom-modal" onclick="closeImageModal()">
+    <img class="img-modal-content" id="zoomed-img" src="" alt="拡大画像">
+  </div>
+
+  <script>
+    // ==========================================
+    // 外部連携設定・環境定数
+    // ==========================================
+    const GAS_API_URL = "__GAS_API_URL__"; // GAS URL受領時にワンライナー等で置換
+    const LIFF_ID = "2011871129-P4lflaGc";
+    const OFFICIAL_LINE_ID = "@721pyqfn";
+    
+    // カテゴリの固定並び順
+    const ORDERED_CATEGORIES = ["魚", "シャコガイ", "貝", "サンゴ", "イソギンチャク", "擬岩", "その他"];
+
+    let allProducts = [], categories = [], currentCategory = '', cart = {};
+    let lineProfile = null, isRegistered = false, customerMaster = null;
+    let userHistory = { purchaseCounts: {}, lastOrderItems: [] };
+    let selectedNgDates = new Set(); // 選択された受取不可日
+
+    // ユーザーIDを複数の取得元から安全に抽出する関数
+    function extractUserId() {
+      if (lineProfile && lineProfile.userId) return lineProfile.userId;
+      if (typeof liff !== 'undefined') {
+        try {
+          const ctx = liff.getContext();
+          if (ctx && ctx.userId) return ctx.userId;
+        } catch (e) {}
+        try {
+          const idToken = liff.getDecodedIDToken();
+          if (idToken && idToken.sub) return idToken.sub;
+        } catch (e) {}
+      }
+      const val = document.getElementById('reg-uid') ? document.getElementById('reg-uid').value.trim() : "";
+      return (val && !val.includes("待機") && !val.includes("ログイン")) ? val : "";
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      const container = document.getElementById('product-container');
+      try {
+        // 1. LIFF初期化とLINEプロフィール取得
+        await initLiff();
+
+        // 2. スマホの記憶領域へのアクセス（ブロックされても無視）
+        let savedPhone = "";
+        try {
+          savedPhone = localStorage.getItem('kawabata_phone') || "";
+        } catch (storageErr) {
+          console.warn("localStorage access denied:", storageErr);
+        }
+
+        // 3. 商品データ & 顧客認証の照会
+        await fetchProducts(savedPhone);
+
+      } catch (mainErr) {
+        container.style.display = 'block';
+        container.innerHTML = `<div class="loading-text" style="color:red; font-weight:bold;">通信エラーが発生しました。<br>${mainErr.message}</div>`;
+      }
+    });
+
+    async function initLiff() {
+      const hint = document.getElementById('uid-hint');
+      const loginBtn = document.getElementById('liff-login-btn');
+      const uidInput = document.getElementById('reg-uid');
+
+      try {
+        // LIFF SDKの初期化（タイムアウト10秒）
+        await Promise.race([
+          liff.init({ liffId: LIFF_ID }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('LINE連携の初期化がタイムアウトしました')), 10000))
+        ]);
+
+        if (liff.isLoggedIn()) {
+          try {
+            lineProfile = await liff.getProfile();
+          } catch (pErr) {
+            console.warn("getProfile failed, using fallback:", pErr);
+          }
+          applyProfileToUI();
+        } else {
+          // 未ログイン状態
+          if (liff.isInClient && liff.isInClient()) {
+            // LINEアプリ内の場合は自動ログイン実行
+            liff.login();
+          } else {
+            // 外部ブラウザ（Safari/Chrome等）の場合はログインボタンを表示
+            if (hint) {
+              hint.innerText = "⚠️ LINE未ログインです。ボタンを押してLINE認証してください";
+              hint.style.color = "#d9534f";
+            }
+            if (loginBtn) loginBtn.style.display = "inline-block";
+            if (uidInput) uidInput.placeholder = "下のボタンを押してLINEログインしてください";
+          }
+        }
+      } catch (liffErr) {
+        console.warn("LIFF init error:", liffErr);
+        if (hint) {
+          hint.innerText = "※LINE連携待機中: " + (liffErr.message || "再読み込みしてください");
+          hint.style.color = "#d9534f";
+        }
+        if (loginBtn) loginBtn.style.display = "inline-block";
+      }
+    }
+
+    function execLiffLogin() {
+      if (typeof liff !== 'undefined') {
+        liff.login({ redirectUri: window.location.href });
+      }
+    }
+
+    function applyProfileToUI() {
+      const uidInput = document.getElementById('reg-uid');
+      const hint = document.getElementById('uid-hint');
+      const loginBtn = document.getElementById('liff-login-btn');
+      const badge = document.getElementById('user-badge');
+
+      const uid = extractUserId();
+      const displayName = lineProfile ? lineProfile.displayName : "";
+
+      if (uid) {
+        if (uidInput) uidInput.value = uid;
+        if (hint) {
+          hint.innerText = `✓ LINE ID取得完了 (${displayName || uid.substring(0, 8) + '...'})`;
+          hint.style.color = "#27ae60";
+          hint.style.fontWeight = "bold";
+        }
+        if (loginBtn) loginBtn.style.display = "none";
+        
+        const regNameInput = document.getElementById('reg-name');
+        if (regNameInput && !regNameInput.value && displayName) {
+          regNameInput.value = displayName;
+        }
+        if (badge && !isRegistered) {
+          badge.innerText = `👤 LINE: ${displayName || '取得済'}`;
+          badge.style.display = 'inline-block';
+        }
+      }
+    }
+
+    async function fetchProducts(savedPhone = "") {
+      const container = document.getElementById('product-container');
+      container.innerHTML = '<div class="loading-text">商品データを読み込んでいます...</div>';
+      
+      try {
+        const uid = extractUserId();
+        let fetchUrl = GAS_API_URL + "?";
+        if (uid) fetchUrl += `userId=${encodeURIComponent(uid)}&`;
+        if (savedPhone) fetchUrl += `phone=${encodeURIComponent(savedPhone)}&`;
+        
+        const res = await fetch(fetchUrl);
+        if (!res.ok) throw new Error(`HTTPエラー ${res.status}`);
+        
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          throw new Error("スプレッドシートの権限設定が完了していません。管理者に「デプロイの更新」を依頼してください。");
+        }
+
+        if (data.error) throw new Error(data.error);
+
+        isRegistered = !!data.isRegistered;
+        customerMaster = data.customer;
+        userHistory = data.userHistory || { purchaseCounts: {}, lastOrderItems: [] };
+        
+        const alertBox = document.getElementById('unregistered-alert');
+        const mainUI = document.getElementById('main-ui');
+        const footerBar = document.getElementById('footer-bar');
+        const badge = document.getElementById('user-badge');
+
+        if (!isRegistered) {
+          // 未登録時は商品一覧・注文UIを完全に非表示
+          alertBox.style.display = 'block';
+          mainUI.style.display = 'none';
+          footerBar.style.display = 'none';
+          container.style.display = 'none';
+          
+          applyProfileToUI();
+          if (!extractUserId()) {
+            badge.innerText = `👤 未登録`;
+            badge.style.display = 'inline-block';
+          }
+          return;
+        }
+
+        // 登録承認済みの場合のみ表示
+        alertBox.style.display = 'none';
+        mainUI.style.display = 'block';
+        footerBar.style.display = 'block';
+        container.style.display = 'grid';
+
+        // 掛け率の表示は削除し、店舗名/お名前のみ表示
+        badge.innerText = `🏢 ${customerMaster.name} 様`;
+        badge.style.display = 'inline-block';
+        document.getElementById('cust-name').value = customerMaster.name || '';
+        document.getElementById('cust-phone').value = customerMaster.phone || '';
+        
+        try {
+          if (customerMaster.phone) localStorage.setItem('kawabata_phone', customerMaster.phone);
+        } catch(e) {}
+
+        const discountRate = (isRegistered && customerMaster) ? customerMaster.discountRate : 1.0;
+        allProducts = (data.products || []).map(p => {
+          const appliedPrice = p.isAsk ? 0 : Math.floor(p.price * discountRate);
+          return { ...p, price: appliedPrice, vol: Number(p.vol) || 0, stock: Number(p.stock) || 0 };
+        });
+
+        allProducts.forEach(p => { if (cart[p.id] === undefined) cart[p.id] = 0; });
+
+        // 指定順序（ORDERED_CATEGORIES）でカテゴリを並び替え
+        const availableCats = new Set(allProducts.map(p => p.category));
+        categories = ORDERED_CATEGORIES.filter(cat => availableCats.has(cat));
+        allProducts.forEach(p => {
+          if (!categories.includes(p.category)) categories.push(p.category);
+        });
+
+        if (categories.length > 0 && !categories.includes(currentCategory)) {
+          currentCategory = categories[0];
+        }
+
+        renderTabs();
+        renderProducts();
+        updateSummary();
+
+      } catch (err) {
+        container.style.display = 'block';
+        container.innerHTML = `<div class="loading-text" style="color:red; font-weight:bold;">${err.message}</div>`;
+      }
+    }
+
+    async function sendRegistrationRequest() {
+      const regName = document.getElementById('reg-name').value.trim();
+      const regPhone = document.getElementById('reg-phone').value.trim();
+      const regAddress = document.getElementById('reg-address').value.trim();
+      
+      if (!regName) {
+        alert("店舗名 / お名前を入力してください。");
+        document.getElementById('reg-name').focus();
+        return;
+      }
+      if (!regPhone) {
+        alert("お電話番号を入力してください。");
+        document.getElementById('reg-phone').focus();
+        return;
+      }
+
+      // LINEユーザーIDの厳格取得チェック
+      let userId = extractUserId();
+
+      // 未取得の場合、再度プロファイル取得を試みる
+      if (!userId && typeof liff !== 'undefined') {
+        if (liff.isLoggedIn()) {
+          try {
+            lineProfile = await liff.getProfile();
+            userId = extractUserId();
+          } catch(e) {}
+        } else {
+          // 未ログインならLINE認証へ案内
+          if (confirm("LINEユーザーIDを取得するためにLINE認証が必要です。\n認証画面へ進みますか？")) {
+            execLiffLogin();
+          }
+          return;
+        }
+      }
+
+      // それでも取得できない場合は送信をブロックして明示的に案内
+      if (!userId) {
+        alert("LINEユーザーIDが取得できていません。\n「LINEログインしてIDを取得」ボタンを押して認証を完了してください。");
+        const loginBtn = document.getElementById('liff-login-btn');
+        if (loginBtn) loginBtn.style.display = "inline-block";
+        return;
+      }
+
+      // 公式LINEへ送信する申請メッセージ文面（ユーザーIDを確実に含める）
+      let msgText = `【会員登録・取引申請】\n`;
+      msgText += `仕入れサイトのアカウント登録を申請します。\n\n`;
+      msgText += `■ 店舗名 / お名前: ${regName}\n`;
+      msgText += `■ 電話番号: ${regPhone}\n`;
+      if (regAddress) {
+        msgText += `■ 住所: ${regAddress}\n`;
+      }
+      msgText += `■ LINEユーザーID: ${userId}\n`;
+      msgText += `\n※確認および顧客登録（承認）をお願いいたします。`;
+
+      document.getElementById('loading-overlay').classList.add('active');
+
+      try {
+        // スプレッドシートの「顧客登録申請」シートに申請ログを自動記録
+        fetch(GAS_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: "apply",
+            customer: { name: regName, phone: regPhone, address: regAddress, lineUserId: userId }
+          })
+        }).catch(e => console.warn("Apply log failed:", e));
+
+        // LINEアプリ内（LIFFクライアント）からの場合
+        if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+          try {
+            await liff.sendMessages([{ type: 'text', text: msgText }]);
+            alert('公式LINEに登録申請メッセージを送信しました！\n管理者の登録完了まで今しばらくお待ちください。');
+            document.getElementById('reg-form-body').style.display = 'none';
+            document.getElementById('reg-done-body').style.display = 'block';
+            return;
+          } catch (liffSendErr) {
+            console.warn("liff.sendMessages failed, fallback to url:", liffSendErr);
+          }
+        }
+
+        // 外部ブラウザ等の場合は公式LINEトーク画面を開く
+        document.getElementById('reg-form-body').style.display = 'none';
+        document.getElementById('reg-done-body').style.display = 'block';
+        alert('公式LINEを開きます。表示されたメッセージをそのまま送信してください。');
+        window.location.href = `https://line.me/R/oaMessage/${OFFICIAL_LINE_ID}/?${encodeURIComponent(msgText)}`;
+
+      } catch (err) {
+        alert('申請処理中にエラーが発生しました。通信環境をご確認ください。');
+      } finally {
+        document.getElementById('loading-overlay').classList.remove('active');
+      }
+    }
+
+    function renderTabs() {
+      const tabsContainer = document.getElementById('category-tabs');
+      tabsContainer.innerHTML = '';
+      categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = `tab-btn ${cat === currentCategory ? 'active' : ''}`;
+        btn.innerText = cat;
+        btn.onclick = () => {
+          currentCategory = cat;
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.innerText === cat));
+          renderProducts();
+        };
+        tabsContainer.appendChild(btn);
+      });
+    }
+
+    function formatImgUrl(url) {
+      if (!url) return '';
+      const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+      return (match && match[1]) ? "https://lh3.googleusercontent.com/d/" + match[1] : url;
+    }
+
+    function renderProducts() {
+      const container = document.getElementById('product-container');
+      container.innerHTML = '';
+      
+      let filtered = allProducts.filter(p => p.category === currentCategory);
+      if (filtered.length === 0) return container.innerHTML = '<div class="loading-text">該当する商品は現在ありません。</div>';
+
+      // ソート: 1.在庫あり優先 2.過去の購入回数/数量が多い順 3.通常順
+      filtered.sort((a, b) => {
+        if (a.stock > 0 && b.stock <= 0) return -1;
+        if (a.stock <= 0 && b.stock > 0) return 1;
+        
+        const countA = (userHistory.purchaseCounts && userHistory.purchaseCounts[a.name]) || 0;
+        const countB = (userHistory.purchaseCounts && userHistory.purchaseCounts[b.name]) || 0;
+        if (countA !== countB) return countB - countA;
+        return 0;
+      });
+
+      filtered.forEach(p => {
+        const qty = cart[p.id] || 0;
+        const isSoldOut = p.stock <= 0;
+        const isDisabled = !isRegistered || isSoldOut;
+        const card = document.createElement('div');
+        card.className = `product-card ${isDisabled ? 'disabled' : ''}`;
+        const dummyImg = 'https://via.placeholder.com/300x160?text=No+Image';
+        const imgSrc = p.img ? formatImgUrl(p.img) : dummyImg;
+        let priceDisplay = !isRegistered ? '<span class="price-ask">非公開 (要登録)</span>' : p.isAsk ? '<span class="price-ask">ASK</span>' : `<span class="product-price">¥${p.price.toLocaleString()}</span>`;
+
+        const repeatCount = (userHistory.purchaseCounts && userHistory.purchaseCounts[p.name]) || 0;
+        const repeatBadge = repeatCount > 0 ? `<span class="repeat-badge">★よく買う</span>` : '';
+
+        card.innerHTML = `
+          ${isSoldOut ? '<div class="soldout-tag">売り切れ</div>' : ''}
+          <img src="${imgSrc}" class="product-img" alt="${p.name}" loading="lazy" onerror="this.src='${dummyImg}';" onclick="openImageModal('${imgSrc}')">
+          <div class="product-title">${p.name} ${p.isNew ? '<span style="color:red; font-size:0.75rem;">[NEW]</span>' : ''} ${repeatBadge}</div>
+          <div class="product-meta">サイズ:${p.size || '規格なし'} / ${p.vol}vol / 在庫:${p.stock}</div>
+          <div class="product-price-box">${priceDisplay}</div>
+          <div class="qty-control">
+            <button class="qty-btn" onclick="changeQty('${p.id}', -1)" ${isDisabled ? 'disabled' : ''}>-</button>
+            <input type="text" class="qty-input" value="${qty}" readonly>
+            <button class="qty-btn" onclick="changeQty('${p.id}', 1)" ${isDisabled ? 'disabled' : ''}>+</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function openImageModal(src) {
+      document.getElementById('zoomed-img').src = src;
+      document.getElementById('img-zoom-modal').classList.add('active');
+    }
+    
+    function closeImageModal() {
+      document.getElementById('img-zoom-modal').classList.remove('active');
+    }
+
+    function changeQty(id, delta) {
+      if (!isRegistered) return;
+      const product = allProducts.find(p => String(p.id) === String(id));
+      if (!product) return;
+      let newQty = (cart[id] || 0) + delta;
+      if (newQty < 0) newQty = 0;
+      if (newQty > product.stock) return alert(`在庫上限は ${product.stock} 個です。`);
+      cart[id] = newQty;
+      renderProducts();
+      updateSummary();
+    }
+
+    function updateSummary() {
+      let totalAmount = 0, totalVol = 0, totalCount = 0, hasAsk = false;
+      allProducts.forEach(p => {
+        const qty = cart[p.id] || 0;
+        if (qty > 0) {
+          if (p.isAsk) hasAsk = true; else totalAmount += p.price * qty;
+          totalVol += p.vol * qty;
+          totalCount += qty;
+        }
+      });
+
+      document.getElementById('total-price-text').innerText = `合計金額: ${isRegistered ? totalAmount.toLocaleString() + ' 円' + (hasAsk ? ' + ASK' : '') : '---- 円'}`;
+      document.getElementById('total-vol-text').innerText = `合計容量: ${totalVol.toLocaleString()} vol`;
+      const volInCurrentBox = totalVol % 1000;
+      const boxUsageRate = totalVol === 0 ? 0 : Math.round((volInCurrentBox === 0 ? 1000 : volInCurrentBox) / 1000 * 100);
+      const remainingVol = volInCurrentBox === 0 && totalVol > 0 ? 0 : 1000 - volInCurrentBox;
+
+      document.getElementById('progress-bar').style.width = `${boxUsageRate}%`;
+      document.getElementById('box-rate-text').innerText = `${Math.floor(totalVol / 1000) + 1}箱目の使用率: ${boxUsageRate}%`;
+      document.getElementById('box-empty-text').innerText = `箱の空き: 残り ${remainingVol} vol`;
+
+      const confirmBtn = document.getElementById('confirm-btn');
+      confirmBtn.innerText = isRegistered ? `注文内容を確認する (${totalCount}点)` : '未登録のため注文できません';
+      confirmBtn.disabled = !isRegistered || totalCount === 0;
+    }
+
+    function openModal() {
+      if (!isRegistered) return;
+      renderNgDateChips();
+      calculateModalTotal();
+      document.getElementById('order-modal').classList.add('active');
+    }
+
+    function renderNgDateChips() {
+      const container = document.getElementById('ng-date-chips');
+      if (!container) return;
+      container.innerHTML = '';
+      const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+      const today = new Date();
+
+      // 翌日から14日間（2週間先）の日付チップを生成
+      for (let i = 1; i <= 14; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() + i);
+        const m = d.getMonth() + 1;
+        const dt = d.getDate();
+        const dayStr = weekdays[d.getDay()];
+        const dateKey = `${m}/${dt}(${dayStr})`;
+        
+        const chip = document.createElement('div');
+        const isSel = selectedNgDates.has(dateKey);
+        chip.className = `date-chip ${isSel ? 'selected' : ''}`;
+        chip.innerText = (isSel ? '✕ ' : '') + dateKey;
+        chip.onclick = () => {
+          if (selectedNgDates.has(dateKey)) {
+            selectedNgDates.delete(dateKey);
+          } else {
+            selectedNgDates.add(dateKey);
+          }
+          renderNgDateChips();
+        };
+        container.appendChild(chip);
+      }
+    }
+
+    function calculateModalTotal() {
+      const listContainer = document.getElementById('modal-item-list');
+      const summaryBox = document.getElementById('modal-summary-box');
+      const recContainer = document.getElementById('modal-recommend-container');
+      listContainer.innerHTML = '';
+      let subtotalAmount = 0, totalVol = 0, totalCount = 0, hasAsk = false;
+
+      allProducts.forEach(p => {
+        const qty = cart[p.id] || 0;
+        if (qty > 0) {
+          let priceStr = p.isAsk ? 'ASK' : `¥${(p.price * qty).toLocaleString()}`;
+          if (p.isAsk) hasAsk = true; else subtotalAmount += p.price * qty;
+          totalVol += p.vol * qty;
+          totalCount += qty;
+          const row = document.createElement('div');
+          row.className = 'order-item-row';
+          row.innerHTML = `<span>[${p.category}] ${p.name} × ${qty}</span><span>${priceStr}</span>`;
+          listContainer.appendChild(row);
+        }
+      });
+
+      // 前回の注文からのおすすめ商品（カートに入っておらず、かつ在庫あり）
+      const recCandidates = (userHistory.lastOrderItems || []).map(name => {
+        return allProducts.find(p => p.name === name);
+      }).filter(p => p && p.stock > 0 && (!cart[p.id] || cart[p.id] === 0));
+
+      if (recCandidates.length > 0) {
+        recContainer.style.display = 'block';
+        recContainer.innerHTML = `
+          <div class="recommend-section">
+            <div class="recommend-title">📦 前回の注文ではこちらも注文していました（在庫あり）</div>
+            ${recCandidates.map(p => `
+              <div class="recommend-item">
+                <div class="recommend-item-info">
+                  <strong>${p.name}</strong> (${p.size || '規格なし'} / ${p.vol}vol)
+                  <span class="recommend-item-price">${p.isAsk ? 'ASK' : '¥' + p.price.toLocaleString()}</span>
+                  <div style="font-size:0.7rem; color:#888;">在庫: ${p.stock}個</div>
+                </div>
+                <button class="recommend-add-btn" onclick="addRecommendToCart('${p.id}')">＋ 1個追加</button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        recContainer.style.display = 'none';
+        recContainer.innerHTML = '';
+      }
+
+      summaryBox.innerHTML = `
+        <div>数量: 計 ${totalCount} 点 / 容積: ${totalVol} vol (約${(totalVol / 1000).toFixed(1)}箱)</div>
+        <div class="total-price">お支払い合計: ¥${subtotalAmount.toLocaleString()} (税込)${hasAsk ? ' + ASK' : ''}</div>
+      `;
+    }
+
+    function addRecommendToCart(productId) {
+      const p = allProducts.find(item => String(item.id) === String(productId));
+      if (!p || p.stock <= 0) return;
+      cart[productId] = 1;
+      calculateModalTotal();
+      updateSummary();
+      renderProducts();
+    }
+
+    function closeModal() {
+      document.getElementById('order-modal').classList.remove('active');
+    }
+
+    async function submitOrder() {
+      const custName = document.getElementById('cust-name').value.trim();
+      const custPhone = document.getElementById('cust-phone').value.trim();
+
+      const orderItems = allProducts.filter(p => cart[p.id] > 0).map(p => ({
+        id: p.id,
+        category: p.category,
+        name: p.name,
+        appliedPrice: p.price,
+        isAsk: p.isAsk,
+        vol: p.vol,
+        qty: cart[p.id]
+      }));
+      if (orderItems.length === 0) return;
+
+      document.getElementById('loading-overlay').classList.add('active');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+      const ngDatesList = Array.from(selectedNgDates);
+      const uid = extractUserId();
+
+      try {
+        const payload = {
+          action: "order",
+          items: orderItems,
+          customer: { name: custName, phone: custPhone, lineUserId: uid },
+          ngDates: ngDatesList
+        };
+        const response = await fetch(GAS_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        const text = await response.text();
+        let result;
+        try {
+          result = JSON.parse(text);
+        } catch (e) {
+          throw new Error("サーバーとの通信に失敗しました。");
+        }
+
+        if (result.status === "success") {
+          let subtotalAmount = 0, totalVol = 0, hasAsk = false;
+          let msgText = `【新規ご注文】\n店舗/氏名: ${custName} 様\n`;
+          if (custPhone) msgText += `TEL: ${custPhone}\n`;
+          if (ngDatesList.length > 0) {
+            msgText += `受取不可日: ${ngDatesList.join(', ')}\n`;
+          }
+          msgText += `-------------------\n`;
+          orderItems.forEach(item => {
+            msgText += `・${item.name} × ${item.qty} ${item.isAsk ? '(ASK)' : '(¥'+(item.appliedPrice * item.qty).toLocaleString()+')'}\n`;
+            if (item.isAsk) hasAsk = true; else subtotalAmount += item.appliedPrice * item.qty;
+            totalVol += item.vol * item.qty;
+          });
+          msgText += `-------------------\n商品計: ¥${subtotalAmount.toLocaleString()}${hasAsk ? ' + ASK' : ''}\n容量: ${totalVol.toLocaleString()} vol (約${(totalVol/1000).toFixed(1)}箱)\n\n`;
+          if (result.invoiceUrl) msgText += `📄 納品書PDF:\n${result.invoiceUrl}`;
+
+          // カートと受取不可日のリセット
+          Object.keys(cart).forEach(id => { cart[id] = 0; });
+          selectedNgDates.clear();
+
+          closeModal();
+          renderProducts();
+          updateSummary();
+
+          if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+            try {
+              await liff.sendMessages([{ type: 'text', text: msgText }]);
+              alert('ご注文が完了しました！公式LINEに控えが送信されました。');
+              liff.closeWindow();
+              return;
+            } catch (e) {}
+          }
+          alert('ご注文が完了しました！\n(LINEアプリが入っている場合は、この後メッセージ画面が立ち上がります)');
+          window.location.href = `https://line.me/R/oaMessage/${OFFICIAL_LINE_ID}/?${encodeURIComponent(msgText)}`;
+        } else {
+           alert("エラーが発生しました: " + (result.message || '不明なエラー'));
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') alert('通信がタイムアウトしました。電波の良い場所で再度お試しください。');
+        else alert('注文処理中にエラーが発生しました。通信環境を確認して再度お試しください。');
+      } finally {
+        document.getElementById('loading-overlay').classList.remove('active');
+      }
+    }
+  </script>
+</body>
+</html>
