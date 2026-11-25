@@ -83,7 +83,6 @@ c:\Users\81909\Desktop\shop-project\
 ├── stock.html           # Staff stock inventory & new product registration console
 ├── boat.html            # Maritime / offshore order & request aggregation dashboard (sunlight mode, offline-first)
 ├── collect.html         # Maritime specimen collection request board & status updater (optimistic UI, offline queue)
-├── slides.html          # Executive presentation slide deck for stakeholder review
 ├── 無題.js              # GAS backend implementation (~1600+ LOC)
 ├── HANDOVER_FOR_HUMAN.md# Operational handover manual for human administrators
 └── HANDOVER_FOR_AI.md   # This specification document for AI assistants

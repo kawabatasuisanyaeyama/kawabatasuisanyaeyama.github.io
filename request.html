@@ -3,10 +3,10 @@
   川畑水産 システムファイル
   @file request.html
   @title 生体リクエスト・受注採集要望フォーム
-  @version 2.4.0
-  @lastModified 2026-10-12 20:15:00 JST
+  @version 2.6.0
+  @lastModified 2026-11-25 07:35:00 JST
   @modifiedBy Antigravity AI
-  @note 共同開発規範準拠・未入荷生体採集要望受付＆LINE通知
+  @note セキュリティ刷新: 電話番号による顧客検索廃止 / LINE IDトークン認証連携 / assets/common.js統合
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -16,6 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>生体リクエスト・受注採集要望フォーム - 川畑水産（観賞魚）</title>
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="assets/common.js"></script>
   <style>
     :root {
       --primary-color: #005bac;
@@ -409,8 +410,8 @@
 
   <script>
     // 採集リクエスト受付・顧客検索APIのURL
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxIYsPdreUjaOFutfshhQIwOLb_Ke1JprcDZj_LAT9oZnc-l-3jZLsPAsFd_QdQJAQ4eA/exec";
-    const LIFF_ID = "2011871129-P4IflaGc";
+    const GAS_API_URL = Kawabata.Config.GAS_API_URL;
+    const LIFF_ID = Kawabata.Config.LIFF_ID_CUSTOMER;
 
     let lineProfile = null;
     let specimenCount = 0;
@@ -432,13 +433,7 @@
     }
 
     function escapeHtml(str) {
-      if (str === null || str === undefined) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+      return Kawabata.escapeHtml(str);
     }
 
     // 生体入力ブロックの動的追加
@@ -526,36 +521,30 @@
       }
     }
 
-    // 顧客マスタ検索と自動補完（電話番号トリガー）
-    async function handlePhoneLookup() {
-      const phoneInput = document.getElementById('req-phone');
+    // 顧客マスタから本人の登録情報を安全に自動補完（認証トークン連動）
+    async function syncCustomerProfile() {
       const statusEl = document.getElementById('phone-lookup-status');
-      const rawPhone = phoneInput.value.trim().replace(/[^0-9]/g, '');
-
-      if (rawPhone.length < 10) return;
-
-      statusEl.className = 'lookup-status searching';
-      statusEl.innerText = '🔍 顧客情報を照会中...';
-
       try {
-        const url = `${GAS_API_URL}?action=lookupCustomer&phone=${encodeURIComponent(rawPhone)}`;
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (data && data.found) {
-          if (data.name && !document.getElementById('req-name').value) {
-            document.getElementById('req-name').value = data.name;
+        const res = await Kawabata.getMyProfile();
+        if (res && res.isRegistered && res.customer) {
+          const c = res.customer;
+          if (c.name && !document.getElementById('req-name').value) {
+            document.getElementById('req-name').value = c.name;
           }
-          if (data.prefecture && !document.getElementById('req-prefecture').value) {
-            document.getElementById('req-prefecture').value = data.prefecture;
+          if (c.phone && !document.getElementById('req-phone').value) {
+            document.getElementById('req-phone').value = c.phone;
           }
-          statusEl.className = 'lookup-status success';
-          statusEl.innerText = `✨ 登録済み顧客情報（${data.name} 様）を自動反映しました`;
-        } else {
-          statusEl.style.display = 'none';
+          if (c.prefecture && !document.getElementById('req-prefecture').value) {
+            document.getElementById('req-prefecture').value = c.prefecture;
+          }
+          if (statusEl) {
+            statusEl.className = 'lookup-status success';
+            statusEl.innerText = `✨ 登録済み顧客情報（${c.name} 様）を自動反映しました`;
+            statusEl.style.display = 'block';
+          }
         }
       } catch (err) {
-        statusEl.style.display = 'none';
+        console.warn("syncCustomerProfile skipped:", err);
       }
     }
 
@@ -568,10 +557,7 @@
       try {
         const savedPhone = localStorage.getItem('kawabata_phone') || "";
         const savedName = localStorage.getItem('kawabata_cust_name') || "";
-        if (savedPhone) {
-          document.getElementById('req-phone').value = savedPhone;
-          handlePhoneLookup();
-        }
+        if (savedPhone) document.getElementById('req-phone').value = savedPhone;
         if (savedName) document.getElementById('req-name').value = savedName;
       } catch (e) {}
 
@@ -590,6 +576,9 @@
               badge.style.display = 'inline-block';
             }
           } catch (pErr) {}
+
+          // ログイン認証済みの場合、顧客マスタの本人情報を自動反映
+          await syncCustomerProfile();
         }
       } catch (liffErr) {
         console.warn("LIFF init skipped or error:", liffErr);
@@ -671,25 +660,8 @@
       overlay.classList.add('active');
       submitBtn.disabled = true;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 35000);
-
       try {
-        const response = await fetch(GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const text = await response.text();
-        let result;
-        try {
-          result = JSON.parse(text);
-        } catch (e) {
-          throw new Error("サーバーからの応答の解析に失敗しました。");
-        }
+        const result = await Kawabata.submitSpecimenRequest(payload);
 
         if (result.status === "success") {
           // 成功画面への切り替え（フォールバック表示用）

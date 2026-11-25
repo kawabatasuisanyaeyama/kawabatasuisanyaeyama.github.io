@@ -3,10 +3,10 @@
   川畑水産 システムファイル
   @file stock.html
   @title 在庫・生体管理コンソール（社内専用）
-  @version 2.5.0
-  @lastModified 2026-11-02 14:50:00 JST
+  @version 2.6.0
+  @lastModified 2026-11-25 07:35:00 JST
   @modifiedBy Antigravity AI
-  @note 在庫あり優先ソート（stock>0を最上位配置）・並び替え切り替え・フィルタ時インデックス不整合修正
+  @note セキュリティ刷新: スタッフセッション認可 / 管理者端末コード発行 / assets/common.js統合
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -15,6 +15,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>川畑水産 在庫・生体管理コンソール（社内専用）</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="assets/common.js"></script>
   <style>
     :root {
       --primary: #005bac;
@@ -330,6 +332,7 @@
         <span class="admin-badge">社内専用</span>
       </div>
       <div class="header-actions">
+        <button class="btn-header" id="btn-issue-device-code" style="display:none; background:#0284c7; color:#fff;" onclick="issueSharedDeviceCode()" title="出荷作業用の共有端末コードを発行">🔑 端末コード</button>
         <a href="picking.html" class="btn-header" title="出荷ピッキング画面へ">📦 ピッキング</a>
         <button class="btn-header refresh-btn" id="refresh-btn" onclick="fetchStockData()">
           <span class="spin-icon">🔄</span>
@@ -595,7 +598,7 @@
   </footer>
 
   <script>
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxIYsPdreUjaOFutfshhQIwOLb_Ke1JprcDZj_LAT9oZnc-l-3jZLsPAsFd_QdQJAQ4eA/exec";
+    const GAS_API_URL = Kawabata.Config.GAS_API_URL;
 
     let rawStockItems = [];
     let selectedCategory = "ALL";
@@ -604,13 +607,39 @@
     let editImageBase64 = "";
     let editImageName = "";
 
+    function escapeHtml(str) {
+      return Kawabata.escapeHtml(str);
+    }
+
     // 初期化
     window.addEventListener('DOMContentLoaded', () => {
-      fetchStockData();
+      // 社内スタッフ認証 (stock権限以上)
+      Kawabata.initStaffAuth('stock', (staffInfo) => {
+        console.log("[Stock] 認証完了:", staffInfo);
+        if (staffInfo && staffInfo.role === 'admin') {
+          const codeBtn = document.getElementById('btn-issue-device-code');
+          if (codeBtn) codeBtn.style.display = 'inline-flex';
+        }
+        fetchStockData();
+      });
 
       // クリップボードからの画像貼り付け（Ctrl+V）サポート
       window.addEventListener('paste', handleGlobalPaste);
     });
+
+    // 共有端末登録コード発行（管理者専用）
+    async function issueSharedDeviceCode() {
+      try {
+        const res = await Kawabata.apiCall('issueDeviceCode', {}, { auth: 'staff' });
+        if (res.status === 'success') {
+          alert(`【出荷作業場 共有端末登録コード】\n\n🔑 コード: ${res.code}\n\n※有効期限: 10分間（使い捨て）\n出荷作業場のタブレットの「共有端末コード入力」画面でこの6桁を入力してください。`);
+        } else {
+          alert('コード発行エラー: ' + (res.message || ''));
+        }
+      } catch (err) {
+        alert('コード発行エラー: ' + err.message);
+      }
+    }
 
     // ビュー切り替え
     function switchView(viewName) {
@@ -626,10 +655,8 @@
       btn.classList.add('spinning');
 
       try {
-        const res = await fetch(`${GAS_API_URL}?action=getStockList`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await Kawabata.apiCall('getStockList', {}, { auth: 'staff' });
 
-        const data = await res.json();
         if (data.status === 'success') {
           rawStockItems = data.items || [];
           rawStockItems.forEach((it, i) => { it._rawIndex = i; });
@@ -887,19 +914,14 @@
       showToast(`📦 ${item.name} の在庫を ${newStock} に更新中...`);
 
       try {
-        const res = await fetch(GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: "updateStock",
-            category: item.category,
-            id: item.id,
-            name: item.name,
-            rowNumber: item.rowNumber,
-            stock: newStock
-          })
-        });
-        const result = await res.json();
+        const result = await Kawabata.apiCall('updateStock', {
+          category: item.category,
+          id: item.id,
+          name: item.name,
+          rowNumber: item.rowNumber,
+          stock: newStock
+        }, { auth: 'staff' });
+
         if (result.status === 'success') {
           showToast(`✅ ${item.name} 在庫: ${newStock}個 に保存完了`);
         } else {
@@ -1029,7 +1051,6 @@
 
       try {
         const payload = {
-          action: "createProduct",
           category: category,
           tier: tier,
           name: name,
@@ -1041,12 +1062,7 @@
           images: currentSelectedImages
         };
 
-        const res = await fetch(GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload)
-        });
-        const result = await res.json();
+        const result = await Kawabata.apiCall('createProduct', payload, { auth: 'staff' });
 
         if (result.status === 'success') {
           showToast(`🎉 「${name}」を登録しました！`);
@@ -1197,17 +1213,11 @@
         let uploadedUrls = [];
         if (editNewImages.length > 0) {
           saveBtn.innerText = '写真をGoogle Driveへ保存中...';
-          const upRes = await fetch(GAS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: "uploadImage",
-              id: id,
-              category: cat,
-              images: editNewImages
-            })
-          });
-          const upJson = await upRes.json();
+          const upJson = await Kawabata.apiCall('uploadImage', {
+            id: id,
+            category: cat,
+            images: editNewImages
+          }, { auth: 'staff' });
           if (upJson.status === 'success' && upJson.urls) {
             uploadedUrls = upJson.urls;
           }
@@ -1216,7 +1226,6 @@
         const allImageUrls = [...editExistingImageUrls, ...uploadedUrls].join(',');
 
         const updatePayload = {
-          action: "updateStock",
           category: cat,
           id: id,
           rowNumber: rowNum,
@@ -1229,12 +1238,7 @@
           img: allImageUrls
         };
 
-        const res = await fetch(GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(updatePayload)
-        });
-        const result = await res.json();
+        const result = await Kawabata.apiCall('updateStock', updatePayload, { auth: 'staff' });
 
         if (result.status === 'success') {
           closeEditModal();

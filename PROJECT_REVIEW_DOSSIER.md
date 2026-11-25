@@ -42,7 +42,6 @@
 | 4 | **在庫・生体管理コンソール** | [https://kawabatasuisanyaeyama.github.io/stock.html](https://kawabatasuisanyaeyama.github.io/stock.html) | 陸上管理スタッフ | スマートフォン（カメラ連動） / PC |
 | 5 | **洋上注文集計ボード** | [https://kawabatasuisanyaeyama.github.io/boat.html](https://kawabatasuisanyaeyama.github.io/boat.html) | 船上漁師・採集スタッフ | スマートフォン（片手操作・直射日光モード） |
 | 6 | **船上採集完了トグルボード** | [https://kawabatasuisanyaeyama.github.io/collect.html](https://kawabatasuisanyaeyama.github.io/collect.html) | 船上漁師・採集スタッフ | スマートフォン（オフライン耐性・0ms楽観UI） |
-| 7 | **経営・運用説明スライド** | [https://kawabatasuisanyaeyama.github.io/slides.html](https://kawabatasuisanyaeyama.github.io/slides.html) | 社長・役員・スタッフ | PC / タブレット（プレゼンテーション・全15枚） |
 
 ---
 
@@ -162,13 +161,7 @@
   2. **オフラインキュー＆自動同期（Auto-Drain Queue）**:
      - 電波が圏外でPOSTに失敗した場合、操作内容を `kawabata_collect_sync_queue_v1` に自動スタック。オンライン復帰時（`online` イベント）に自動でバックグラウンド送信。
 
-### ⑦ 経営・運用説明スライド (`slides.html`)
-* **目的**: 社長、役員、共同開発者、現場スタッフに対して、システムの全体像・業務フロー・各ツールの役割をプレゼンテーションするためのスライドデッキ（全15枚）。
-* **主要機能・実装上の工夫**:
-  - キーボード左右キー、画面タップ、スワイプ操作に対応したインタラクティブプレゼンテーター。
-  - システム構成図、B2B受発注フロー、出荷・在庫の現場運用、船上採集と安全対策をビジュアル解説。
-
-### ⑧ バックエンド Google Apps Script (`無題.js`)
+### ⑦ バックエンド Google Apps Script (`無題.js`)
 * **コード規模**: 約2,246行（V8ランタイム、ES6+対応）
 * **主要エンドポイント (`doGet`)**:
   - `fetchProducts`: 顧客UIDに基づく認可チェック、個別掛率計算、カテゴリ・グループ認可フィルタ、在庫0除外

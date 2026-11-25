@@ -3,10 +3,10 @@
   川畑水産 システムファイル
   @file picking.html
   @title 出荷ピッキング管理コンソール（社内専用）
-  @version 2.4.0
-  @lastModified 2026-10-12 20:15:00 JST
+  @version 2.6.0
+  @lastModified 2026-11-25 07:35:00 JST
   @modifiedBy Antigravity AI
-  @note 共同開発規範準拠・未発送管理＆電話追加注文対応
+  @note セキュリティ刷新: スタッフセッショントークン認証 / 共有端末コード対応 / 非公開PDF対応 / assets/common.js統合
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -15,6 +15,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
   <title>川畑水産 社内専用 ピッキング管理システム</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="assets/common.js"></script>
   <style>
     :root {
       --primary: #005bac;
@@ -532,8 +534,8 @@
   </footer>
 
   <script>
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxIYsPdreUjaOFutfshhQIwOLb_Ke1JprcDZj_LAT9oZnc-l-3jZLsPAsFd_QdQJAQ4eA/exec";
-    const OFFICIAL_LINE_ID = "@721pyqfn";
+    const GAS_API_URL = Kawabata.Config.GAS_API_URL;
+    const OFFICIAL_LINE_ID = Kawabata.Config.OFFICIAL_LINE_ID;
 
     let currentTab = "orders";
     let rawOrders = [];
@@ -545,17 +547,23 @@
     let currentAddCustomerName = "";
     let selectedProductState = null;
 
+    function escapeHtml(str) {
+      return Kawabata.escapeHtml(str);
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       try {
         checkedItemsMap = JSON.parse(localStorage.getItem('kawabata_picking_checks') || "{}");
         pickedSummaryMap = JSON.parse(localStorage.getItem('kawabata_summary_checks') || "{}");
       } catch (e) {}
 
-      fetchPickingData();
-      loadProductsMaster();
-
-      // 60秒ごとに自動更新
-      setInterval(fetchPickingData, 60000);
+      // 社内出荷スタッフ認証（未認証時はログインモーダル／共有端末コード入力表示）
+      Kawabata.initStaffAuth('shipping', (staffInfo) => {
+        console.log("[Staff] 認証成功:", staffInfo);
+        fetchPickingData();
+        loadProductsMaster();
+        setInterval(fetchPickingData, 60000);
+      });
     });
 
     // タブ切り替え
@@ -574,14 +582,24 @@
       btn.classList.add('spinning');
 
       try {
-        const showAll = document.getElementById('status-filter').value !== 'unshipped' ? '1' : '0';
-        const res = await fetch(`${GAS_API_URL}?action=getPickingList&showAll=${showAll}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const showAll = document.getElementById('status-filter').value !== 'unshipped';
+        const data = await Kawabata.apiCall('getPickingList', { showAll: showAll ? '1' : '0' }, { auth: 'staff' });
         
-        const data = await res.json();
         if (data.status === 'success') {
           rawOrders = data.orders || [];
           rawTotalSummary = data.totalSummary || [];
+          renderCurrentView();
+          updateStats();
+          document.getElementById('last-sync-label').innerText = `最終同期: ${new Date().toLocaleTimeString('ja-JP')} (60秒毎自動同期)`;
+        } else {
+          console.warn("Fetch picking data error:", data);
+        }
+      } catch (err) {
+        console.error("fetchPickingData error:", err);
+      } finally {
+        btn.classList.remove('spinning');
+      }
+    }
 
           updateStats();
           renderCurrentView();
@@ -705,8 +723,8 @@
           `;
         }).join('');
 
-        // 発送通知LINE用リンク
-        const shipMsg = `【発送完了のお知らせ】\n${order.customerName} 様\n\nご注文いただいた商品を本日発送いたしました。\n基本的には明日の午前中到着予定となります。\n到着後の水合わせ等のご準備をお願いいたします。\n\n📄納品書PDF:\n${order.pdfUrl || ''}`;
+        // 発送通知LINE用リンク（納品書PDFリンクは除外・注文番号を記載）
+        const shipMsg = `【発送完了のお知らせ】\n${order.customerName} 様\n\nご注文いただいた商品を本日発送いたしました。\n基本的には明日の午前中到着予定となります。\n到着後の水合わせ等のご準備をお願いいたします。\n\n🔖 注文番号: ${order.orderId}`;
         const lineUrl = `https://line.me/R/oaMessage/${OFFICIAL_LINE_ID}/?${encodeURIComponent(shipMsg)}`;
 
         return `
@@ -835,16 +853,11 @@
 
       // GASバックエンドへ通信してスプレッドシートの発送済チェックを同期
       try {
-        const res = await fetch(GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: "updateShipStatus",
-            orderId: orderId,
-            isShipped: setShipped
-          })
-        });
-        const result = await res.json();
+        const result = await Kawabata.apiCall('updateShipStatus', {
+          orderId: orderId,
+          isShipped: setShipped
+        }, { auth: 'staff' });
+
         if (result.status !== 'success') {
           alert('更新エラー: ' + (result.message || ''));
           fetchPickingData();
@@ -860,16 +873,17 @@
     // 生体手動追加モーダル処理
     // ==========================================
 
-    // マスタ商品データのバックグラウンド取得
+    // マスタ商品データのバックグラウンド取得 (スタッフ認証経由)
     async function loadProductsMaster() {
       try {
-        const res = await fetch(`${GAS_API_URL}?action=fetchProducts`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data && data.products) {
-          allProductsMaster = data.products;
+        const data = await Kawabata.apiCall('getStockList', {}, { auth: 'staff' });
+        if (data && data.items) {
+          allProductsMaster = data.items;
         }
       } catch (e) {
+        console.warn("loadProductsMaster error:", e);
+      }
+    }
         console.warn("loadProductsMaster error:", e);
       }
     }
@@ -1166,25 +1180,20 @@
       submitBtn.innerText = '追加処理中...';
 
       try {
-        const res = await fetch(GAS_API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: "addOrderItem",
-            orderId: currentAddOrderId,
-            customerName: payloadCustName,
-            phone: payloadPhone,
-            item: {
-              name: finalName,
-              category: finalCat,
-              qty: finalQty,
-              price: finalUnitPrice,
-              subtotal: finalTotalPrice,
-              isAsk: isAsk
-            }
-          })
-        });
-        const result = await res.json();
+        const result = await Kawabata.apiCall('addOrderItem', {
+          orderId: currentAddOrderId,
+          customerName: payloadCustName,
+          phone: payloadPhone,
+          item: {
+            name: finalName,
+            category: finalCat,
+            qty: finalQty,
+            price: finalUnitPrice,
+            subtotal: finalTotalPrice,
+            isAsk: isAsk
+          }
+        }, { auth: 'staff' });
+
         if (result.status === 'success') {
           if (navigator.vibrate) navigator.vibrate(50);
           closeAddFishModal();

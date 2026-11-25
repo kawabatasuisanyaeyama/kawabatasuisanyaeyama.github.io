@@ -3,10 +3,10 @@
   川畑水産 システムファイル
   @file collect.html
   @title 採集リクエスト管理（洋上・船上仕様）
-  @version 2.4.0
-  @lastModified 2026-10-12 20:15:00 JST
+  @version 2.6.0
+  @lastModified 2026-11-25 07:35:00 JST
   @modifiedBy Antigravity AI
-  @note 共同開発規範準拠・楽観的UI更新＆圏外同期キュー
+  @note セキュリティ刷新: PWA Service Worker / スタッフセッション認可 / assets/common.js統合
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -16,6 +16,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>採集リクエスト管理（洋上・船上仕様）- 川畑水産</title>
   <meta name="description" content="船上・洋上の屋外現場からGoogleスプレッドシートと連動し、採集リクエストの確認と完了更新を片手でワンタップ処理できるWebアプリ">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0369a1">
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="assets/common.js"></script>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -329,8 +333,14 @@
     // ==========================================
     // 1. 環境設定・GAS APIエンドポイント
     // ==========================================
-    // ※スプレッドシート「石垣島観賞魚販売管理」と通信するGAS Web Appの公開URL
-    const API_URL = "https://script.google.com/macros/s/AKfycbxIYsPdreUjaOFutfshhQIwOLb_Ke1JprcDZj_LAT9oZnc-l-3jZLsPAsFd_QdQJAQ4eA/exec";
+    const API_URL = Kawabata.Config.GAS_API_URL;
+
+    // Service Worker (PWA オフライン対応)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.warn('[PWA] SW registration failed:', err));
+      });
+    }
 
     // ローカルストレージキー
     const STORAGE_KEY_REQUESTS = "kawabata_collect_requests_cache_v1";
@@ -554,10 +564,13 @@
       renderCategoryFilters();
       renderAll();
 
-      // 本番接続モードなら自動で最新取得を試行
-      if (dataSource === 'live' && navigator.onLine) {
-        fetchRequests(true);
-      }
+      // 社内スタッフ認証 (boat権限以上)
+      Kawabata.initStaffAuth('boat', (staffInfo) => {
+        console.log("[Collect] Staff authenticated:", staffInfo);
+        if (dataSource === 'live' && navigator.onLine) {
+          fetchRequests(true);
+        }
+      });
     });
 
     // ==========================================
@@ -652,19 +665,14 @@
       const remainingQueue = [];
       for (const item of queue) {
         try {
-          const res = await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'updateRequestStatus',
-              id: item.id,
-              requestId: item.requestId,
-              status: item.status,
-              updatedAt: item.timestamp
-            })
-          });
-          const result = await res.json();
-          if (result.status !== 'success') {
+          const result = await Kawabata.apiCall('updateRequestStatus', {
+            id: item.id,
+            requestId: item.requestId,
+            status: item.status,
+            updatedAt: item.timestamp
+          }, { auth: 'staff' });
+
+          if (result.status !== 'success' && result.status !== 'not_found') {
             remainingQueue.push(item);
           }
         } catch (err) {
@@ -727,16 +735,8 @@
       }
 
       try {
-        const res = await fetch(API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'updateRequestStatus',
-            ...payload
-          })
-        });
-        const result = await res.json();
-        if (result.status !== 'success') {
+        const result = await Kawabata.apiCall('updateRequestStatus', payload, { auth: 'staff' });
+        if (result.status !== 'success' && result.status !== 'not_found') {
           throw new Error(result.message || '更新エラー');
         }
       } catch (err) {
@@ -769,9 +769,7 @@
       }
 
       try {
-        const res = await fetch(`${API_URL}?action=getSpecimenRequests&timestamp=${Date.now()}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await Kawabata.apiCall('getSpecimenRequests', {}, { auth: 'staff' });
 
         if (data && data.requests && Array.isArray(data.requests)) {
           // スプレッドシートからの受信データを反映

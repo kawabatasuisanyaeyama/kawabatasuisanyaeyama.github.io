@@ -3,10 +3,10 @@
   川畑水産 システムファイル
   @file boat.html
   @title 船上注文集計（採集リクエスト連動）
-  @version 2.4.0
-  @lastModified 2026-10-12 20:15:00 JST
+  @version 2.6.0
+  @lastModified 2026-11-25 07:35:00 JST
   @modifiedBy Antigravity AI
-  @note 共同開発規範準拠・採集リクエスト一覧シート連動・洋上直射日光モード対応
+  @note セキュリティ刷新: PWA Service Worker / スタッフセッション認可 / assets/common.js統合
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -16,6 +16,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>船上注文集計（採集リクエスト連動）- 川畑水産</title>
   <meta name="description" content="船上・洋上の屋外直射日光下でも採集リクエストシートのデータを素早く確認し、ワンタップで完了更新できる洋上現場仕様Webアプリ">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#005bac">
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="assets/common.js"></script>
   <style>
     /* ========================================================
        カラーパレット・テーマ変数
@@ -1354,8 +1358,14 @@
     // ==========================================
     // 1. 環境設定・GAS APIエンドポイント
     // ==========================================
-    // ※スプレッドシート「採集リクエスト一覧」と連携するGAS Web App
-    const API_URL = "https://script.google.com/macros/s/AKfycbxIYsPdreUjaOFutfshhQIwOLb_Ke1JprcDZj_LAT9oZnc-l-3jZLsPAsFd_QdQJAQ4eA/exec";
+    const API_URL = Kawabata.Config.GAS_API_URL;
+
+    // Service Worker (PWA オフライン対応)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.warn('[PWA] SW registration failed:', err));
+      });
+    }
 
     // ローカルストレージキー
     const STORAGE_KEY_REQUESTS = "kawabata_boat_requests_data_v3";
@@ -1518,10 +1528,13 @@
         document.getElementById('last-updated-text').innerText = `最終更新: ${lastSync}`;
       }
 
-      // 本番モードかつオンラインなら自動で最新スプレッドシート取得
-      if (dataSource === 'live' && navigator.onLine) {
-        fetchRequests(true);
-      }
+      // 7. 社内スタッフ認証 (boat権限以上)
+      Kawabata.initStaffAuth('boat', (staffInfo) => {
+        console.log("[Boat] Staff authenticated:", staffInfo);
+        if (dataSource === 'live' && navigator.onLine) {
+          fetchRequests(true);
+        }
+      });
     });
 
     // ==========================================
@@ -1619,19 +1632,14 @@
       const remaining = [];
       for (const item of queue) {
         try {
-          const res = await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'updateRequestStatus',
-              id: item.id,
-              requestId: item.requestId,
-              rowNumber: item.rowNumber,
-              status: item.status,
-              updatedAt: item.timestamp
-            })
-          });
-          const result = await res.json();
+          const result = await Kawabata.apiCall('updateRequestStatus', {
+            id: item.id,
+            requestId: item.requestId,
+            rowNumber: item.rowNumber,
+            status: item.status,
+            updatedAt: item.timestamp
+          }, { auth: 'staff' });
+
           if (result.status !== 'success' && result.status !== 'not_found') {
             remaining.push(item);
           }
@@ -1674,9 +1682,7 @@
       }
 
       try {
-        const res = await fetch(`${API_URL}?action=getSpecimenRequests&timestamp=${Date.now()}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await Kawabata.apiCall('getSpecimenRequests', {}, { auth: 'staff' });
 
         if (data && data.requests && Array.isArray(data.requests)) {
           // 未送信キューの状態を保持して上書き防止
@@ -1759,15 +1765,7 @@
       }
 
       try {
-        const res = await fetch(API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'updateRequestStatus',
-            ...payload
-          })
-        });
-        const result = await res.json();
+        const result = await Kawabata.apiCall('updateRequestStatus', payload, { auth: 'staff' });
         if (result.status !== 'success' && result.status !== 'not_found') {
           throw new Error(result.message || '更新エラー');
         }
@@ -1810,14 +1808,13 @@
         if (!navigator.onLine) {
           addToSyncQueue(payload);
         } else {
-          fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'updateRequestStatus',
-              ...payload
-            })
-          }).catch(err => {
+          Kawabata.apiCall('updateRequestStatus', payload, { auth: 'staff' }).catch(err => {
+            console.warn('Batch status update failed, queuing:', err);
+            addToSyncQueue(payload);
+          });
+        }
+      });
+    }
             addToSyncQueue(payload);
           });
         }

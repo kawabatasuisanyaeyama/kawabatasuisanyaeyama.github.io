@@ -3,10 +3,10 @@
   川畑水産 システムファイル
   @file index.html
   @title 商品注文フォーム（顧客向け公式LINE連携）
-  @version 2.5.0
-  @lastModified 2026-10-15 19:10:00 JST
+  @version 2.6.0
+  @lastModified 2026-11-25 07:35:00 JST
   @modifiedBy Antigravity AI
-  @note LINEログイン先行ゲート（認証→マスタ照会通過）＆売り切れ商品非表示化・共同開発規範準拠
+  @note セキュリティ刷新: LINE IDトークン認証 / サーバー側再計算 / 非公開PDF / assets/common.js統合
   =============================================================================
 -->
 <!DOCTYPE html>
@@ -16,6 +16,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>商品注文フォーム - 川畑水産（観賞魚）</title>
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="assets/common.js"></script>
   <style>
     :root {
       --primary-color: #005bac; --bg-color: #f4f6f9; --card-bg: #ffffff;
@@ -403,9 +404,9 @@
     // ==========================================
     // 外部連携設定・環境定数
     // ==========================================
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxIYsPdreUjaOFutfshhQIwOLb_Ke1JprcDZj_LAT9oZnc-l-3jZLsPAsFd_QdQJAQ4eA/exec";
-    const LIFF_ID = "2011871129-P4IflaGc";
-    const OFFICIAL_LINE_ID = "@721pyqfn";
+    const GAS_API_URL = Kawabata.Config.GAS_API_URL;
+    const LIFF_ID = Kawabata.Config.LIFF_ID_CUSTOMER;
+    const OFFICIAL_LINE_ID = Kawabata.Config.OFFICIAL_LINE_ID;
     
     // カテゴリの固定並び順
     const ORDERED_CATEGORIES = ["魚", "シャコガイ", "貝", "サンゴ", "イソギンチャク", "擬岩", "その他"];
@@ -610,12 +611,14 @@
       }
     });
 
-    // 診断ログ更新ヘルパー
+    // 診断ログ更新ヘルパー（?debug=1 時のみ表示）
     function updateDebugLog(type, message) {
       const panel = document.getElementById('liff-debug-panel');
       const liffMsg = document.getElementById('debug-liff-msg');
       const gasMsg = document.getElementById('debug-gas-msg');
-      if (panel) panel.style.display = 'block';
+      if (panel) {
+        panel.style.display = (typeof Kawabata !== 'undefined' && Kawabata.isDebugMode()) ? 'block' : 'none';
+      }
 
       if (type === 'liff' && liffMsg) {
         liffMsg.innerHTML = `<strong>LIFF:</strong> ${message}`;
@@ -826,28 +829,16 @@
       }
       
       try {
-        if (!uid) uid = extractUserId();
-        let fetchUrl = GAS_API_URL + "?";
-        if (uid) fetchUrl += `userId=${encodeURIComponent(uid)}&`;
-        console.log(`[GAS API] 認証パラメータ: userId="${uid || '(未取得)'}" (bgSync: ${isBackgroundSync})`);
-        updateDebugLog('gas', `照会中... (送信UID: ${uid ? uid.substring(0, 10) + '...' : '❌未取得(LIFF未認証)'})`);
+        console.log(`[GAS API] カタログ取得 (認証: LINE IDトークン検証, bgSync: ${isBackgroundSync})`);
+        updateDebugLog('gas', `照会中... (認証: LINE IDトークン)`);
 
-        const res = await fetch(fetchUrl);
-        if (!res.ok) throw new Error(`HTTPエラー ${res.status}`);
-        
-        const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          throw new Error("スプレッドシートの権限設定が完了していません。管理者に「デプロイの更新」を依頼してください。");
-        }
+        const data = await Kawabata.fetchProducts();
 
         console.log("[GAS API] 受信レスポンスJSON:", data);
         if (data.error) throw new Error(data.error);
 
         // キャッシュを最新データで更新
-        saveCatalogCache(data, uid);
+        saveCatalogCache(data, uid || (data.customer ? data.customer.lineUserId : ""));
 
         // 最新データを画面に反映
         applyCatalogData(data, false);
@@ -1346,9 +1337,7 @@
       lastOrderMsgText = msgText;
 
       const payload = {
-        action: "order",
-        items: orderItems,
-        customer: { name: custName, phone: custPhone, lineUserId: uid },
+        items: orderItems.map(item => ({ id: item.id, qty: item.qty })),
         ngDates: ngDatesList
       };
 
@@ -1362,62 +1351,24 @@
       if (statusText) statusText.innerText = '注文を送信しています...';
       if (subText) subText.innerText = '画面を閉じずにお待ちください';
 
-      let lastError = null;
       let successResult = null;
-      const MAX_RETRIES = 2; // 混雑・一時エラー時の最大自動再送回数
-
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        if (attempt > 0) {
-          if (statusText) statusText.innerHTML = '⚠️ サーバー混雑中（順番待ち中）';
-          if (subText) subText.innerHTML = `自動で再送しています (${attempt}/${MAX_RETRIES})<br><small style="color:#27ae60;">※カートの情報は保持されています</small>`;
-          // 2.5秒待機してから再送
-          await new Promise(res => setTimeout(res, 2500));
+      try {
+        successResult = await Kawabata.submitOrder(payload);
+      } catch (err) {
+        overlay.classList.remove('active');
+        if (errBanner) {
+          errBanner.innerText = err.message || '注文の送信に失敗しました';
+          errBanner.style.display = 'block';
         }
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 35000);
-
-        try {
-          const response = await fetch(GAS_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throw new Error(`HTTPエラー ${response.status}`);
-          }
-
-          const text = await response.text();
-          let result;
-          try {
-            result = JSON.parse(text);
-          } catch (e) {
-            throw new Error("サーバー応答の解析に失敗しました");
-          }
-
-          if (result.status === "success") {
-            successResult = result;
-            break; // 送信成功
-          } else if (result.message && result.message.indexOf("混雑") !== -1) {
-            lastError = new Error(result.message);
-          } else {
-            throw new Error(result.message || '注文処理に失敗しました');
-          }
-        } catch (fetchErr) {
-          clearTimeout(timeoutId);
-          lastError = fetchErr;
-          console.warn(`[注文送信試行 ${attempt + 1}/${MAX_RETRIES + 1}] エラー:`, fetchErr);
-        }
+        alert('注文エラー: ' + (err.message || '送信できませんでした'));
+        return;
       }
 
       overlay.classList.remove('active');
 
       if (successResult) {
-        if (successResult.invoiceUrl) {
-          msgText += `\n📄 納品書PDF:\n${successResult.invoiceUrl}`;
+        if (successResult.orderId) {
+          msgText += `\n🔖 注文番号: ${successResult.orderId}\n`;
         }
 
         // 正常完了時のみカートと受取不可日をリセット
