@@ -400,11 +400,27 @@
   // 5. グローバル公開
   // ---------------------------------------------------------------------------
   window.Kawabata = {
+    Config: KawabataConfig,
     config: KawabataConfig,
     escapeHtml: escapeHtml,
     isDebugMode: isDebugMode,
     debugLog: debugLog,
     apiCall: apiCall,
+    fetchProducts: function (options) {
+      return apiCall('fetchProducts', {}, Object.assign({ auth: 'customer' }, options));
+    },
+    submitOrder: function (payload, options) {
+      return apiCall('order', payload, Object.assign({ auth: 'customer' }, options));
+    },
+    getMyProfile: function (options) {
+      return apiCall('getMyProfile', {}, Object.assign({ auth: 'customer' }, options));
+    },
+    submitSpecimenRequest: function (payload, options) {
+      return apiCall('request', payload, Object.assign({ auth: 'customer' }, options));
+    },
+    registerCustomer: function (payload, options) {
+      return apiCall('apply', payload, Object.assign({ auth: 'customer' }, options));
+    },
     initStaffAuth: initStaffAuth,
     showStaffLoginModal: showStaffLoginModal,
     issueSharedDeviceCode: issueSharedDeviceCode,
